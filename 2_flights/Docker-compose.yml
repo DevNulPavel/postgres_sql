@@ -1,13 +1,13 @@
 version: "3.3"
 services:
-  cources_postgres:
-    container_name: cources_postgres
+  fligts_postgres:
+    container_name: fligts_postgres
     image: postgres:13.2-alpine
     restart: always
     environment:
       POSTGRES_USER: pg
       POSTGRES_PASSWORD: pg
-      POSTGRES_DB: cources
+      POSTGRES_DB: pg
     ports:
       - 5432:5432
     volumes:
@@ -17,7 +17,7 @@ services:
   #   image: dpage/pgadmin4:latest
   #   restart: always
   #   links:
-  #     - cources_postgres
+  #     - postgres
   #   environment:
   #     PGADMIN_DEFAULT_EMAIL: pg@pg.com
   #     PGADMIN_DEFAULT_PASSWORD: pg

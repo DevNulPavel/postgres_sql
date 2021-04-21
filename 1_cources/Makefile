@@ -5,7 +5,7 @@
 .PHONY:
 
 START_POSTGRES:
-	docker-compose up -d
+	docker-compose up
 
 START_PG_CLI:
-	pgcli -U pg -d 1_cources -h 127.0.0.1
+	pgcli -U pg -d cources -h 127.0.0.1
