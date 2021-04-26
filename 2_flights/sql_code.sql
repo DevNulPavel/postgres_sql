@@ -96,3 +96,152 @@ CREATE VIEW upcoming_flights AS
 -- тогда проще использовать просто обычный запрос
 SELECT * FROM upcoming_flights
 WHERE a_airport = 'DYR';
+
+-- Создаем индекс по именам пассажиров
+CREATE INDEX tickets_passenger_name_idx
+ON tickets(passenger_name);
+
+-- Создаем вью для вытягивания информации шереметьево
+CREATE VIEW svo_led_utilization AS
+    SELECT f.flight_no,
+           f.scheduled_departure,
+           count(tf.ticket_no) AS passengers
+    FROM flights f
+    JOIN ticket_flights tf 
+        ON tf.flight_id = f.flight_id
+    WHERE f.departure_airport = 'SVO' 
+        AND f.arrival_airport = 'LED' 
+        AND f.scheduled_departure BETWEEN bookings.now() - INTERVAL '1 day' AND bookings.now()
+    GROUP BY f.flight_no, f.scheduled_departure;
+
+-- Если сделать сейчас выборку, то она будет долгой, так как нету индекса
+SELECT * FROM svo_led_utilization;
+
+-- Можно дополнительно получить информацию по селекту данных
+EXPLAIN (costs off)
+SELECT * FROM svo_led_utilization;
+
+-- Теперь можно создать индекс по аэропортам отправки + по индексам билетов
+CREATE INDEX flights_departure_airport_idx
+    ON flights(departure_airport);
+CREATE INDEX flights_arrival_airport_idx
+    ON flights(arrival_airport);
+CREATE INDEX ticket_flights_flight_id_idx
+    ON ticket_flights(flight_id);
+
+-- Теперь видно, что здесь уже происходит вытягивание данных быстро из индекса
+EXPLAIN (costs off)
+SELECT * FROM svo_led_utilization;
+
+-- Тут данные вытягиваются быстро
+SELECT * FROM svo_led_utilization;
+
+-- Получаем все модели самолетов, которые у нас есть
+SELECT * FROM aircrafts;
+
+-- Модели самолетов с диапазоном больше 10000 или меньше 4000
+SELECT * FROM aircrafts WHERE range > 10000 OR range < 4000;
+
+-- Все модели самолетов с диапазоном больше 2000 и именем, заканчивающимся на 100
+SELECT * FROM aircrafts WHERE range >= 2000 AND model LIKE '%100';
+
+-- Определить номера и время отправления всех рейсов, 
+-- прибывших в аэропорт назначения не во время
+SELECT * FROM flights WHERE scheduled_departure != actual_departure LIMIT 10;
+
+-- Получаем возможные статусы полетов
+SELECT DISTINCT status FROM flights;
+
+-- Подсчитайте количество отмененных рейсов из аэропорта Пулково (LED), 
+-- как вылет, так и прибытие которых было назначено на четверг.
+SELECT count(flight_id) FROM flights 
+WHERE departure_airport = 'VKO' 
+    AND status = 'Cancelled'
+    AND date_part('dow', scheduled_departure) = 4
+    AND date_part('dow', scheduled_arrival) = 4;
+
+-- Типы бронирований
+SELECT DISTINCT fare_conditions FROM ticket_flights;
+
+-- Выведите имена пассажиров, купивших билеты эконом-
+-- класса за сумму, превышающую 70 000 рублей.
+SELECT passenger_name, ticket_flights.amount
+FROM tickets 
+INNER JOIN ticket_flights ON tickets.ticket_no = ticket_flights.ticket_no
+WHERE ticket_flights.fare_conditions = 'Economy' 
+    AND ticket_flights.amount > 70000
+ORDER BY ticket_flights.amount DESC;
+
+-- Выведите имена пассажиров, купивших СУММАРНО билетов эконом-
+-- класса за сумму, превышающую 70 000 рублей.
+SELECT passenger_name, SUM(ticket_flights.amount) AS total_amount 
+FROM tickets 
+INNER JOIN ticket_flights ON tickets.ticket_no = ticket_flights.ticket_no
+WHERE ticket_flights.fare_conditions = 'Economy' 
+GROUP BY passenger_name
+HAVING SUM(ticket_flights.amount) > 70000
+ORDER BY total_amount DESC
+LIMIT 10;
+
+-- Напечатанный посадочный талон должен содержать фамилию и имя пассажира, 
+-- коды аэропортов вылета и прилета, 
+-- дату и время вылета и прилета по расписанию, 
+-- номер места в салоне самолета. 
+-- Напишите запрос, выводящий всю необходимую информацию для полученных посадочных талонов на рейсы, 
+-- которые еще не вылетели.
+SELECT * 
+FROM boarding_passes
+INNER JOIN ticket_flights ON ticket_flights.ticket_no = boarding_passes.ticket_no
+INNER JOIN flights ON flights.flight_id = boarding_passes.flight_id
+WHERE flights.status = 'Scheduled' 
+    OR flights.status = 'Delayed'
+    OR flights.status = 'On Time'
+LIMIT 10;
+
+-- Некоторые пассажиры, вылетающие сегодняшним рейсом («сегодня» определяется функцией bookings.now), 
+-- еще не прошли регистрацию, 
+-- т. е. не получили посадочного талона. 
+-- Выведите имена этих пассажиров и номера рейсов.
+SELECT tickets.passenger_name, flights.flight_no
+FROM ticket_flights
+INNER JOIN tickets ON tickets.ticket_no = ticket_flights.ticket_no
+INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+LEFT JOIN boarding_passes ON boarding_passes.ticket_no = ticket_flights.ticket_no
+WHERE boarding_passes.ticket_no IS NULL
+    AND flights.scheduled_departure 
+        BETWEEN bookings.now()
+        AND bookings.now() + INTERVAL '1 days'
+LIMIT 10;
+
+-- Выведите номера мест, оставшихся свободными в рейсах из Анапы (AAQ) в Шереметьево (SVO), 
+-- вместе с номером рейса и его датой.
+SELECT seats.seat_no, flights.flight_no, flights.scheduled_departure
+FROM seats
+INNER JOIN aircrafts ON aircrafts.aircraft_code = seats.aircraft_code
+INNER JOIN flights ON flights.aircraft_code = aircrafts.aircraft_code
+LEFT JOIN boarding_passes ON boarding_passes.seat_no = seats.seat_no
+WHERE flights.departure_airport = 'AAQ' 
+    AND flights.arrival_airport = 'SVO'
+    AND flights.scheduled_departure 
+        BETWEEN bookings.now()
+        AND bookings.now() - INTERVAL '1 days'
+    AND boarding_passes.ticket_no IS NULL;
+
+-- Напишите запрос, возвращающий среднюю стоимость авиабилета из Воронежа (VOZ) в Санкт-Петербург (LED). 
+-- Поэкспериментируйте с другими агрегирующими функциями (sum, max). 
+-- Какие еще агрегирующие функции бывают?
+SELECT AVG(amount)
+FROM ticket_flights 
+INNER JOIN flights
+    ON flights.flight_id = ticket_flights.flight_id
+WHERE
+    flights.departure_airport = 'VOZ' 
+    AND flights.arrival_airport = 'LED';
+
+-- Напишите запрос, возвращающий среднюю стоимость авиабилета в каждом из классов перевозки. 
+-- Модифицируйте его таким образом, чтобы было видно, какому классу какое значение соответствует.
+SELECT fare_conditions, AVG(amount)
+FROM ticket_flights
+GROUP BY fare_conditions;
+
+-- Выведите всемоделисамолетоввместесобщимколичеством мест в салоне.
