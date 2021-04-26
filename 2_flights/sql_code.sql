@@ -244,4 +244,78 @@ SELECT fare_conditions, AVG(amount)
 FROM ticket_flights
 GROUP BY fare_conditions;
 
--- Выведите всемоделисамолетоввместесобщимколичеством мест в салоне.
+-- Выведите все модели самолетов вместе с общим количеством мест в салоне.
+SELECT aircrafts.model, COUNT(seats.seat_no)
+FROM aircrafts
+INNER JOIN seats ON seats.aircraft_code = aircrafts.aircraft_code
+GROUP BY aircrafts.model;
+
+-- Напишите запрос, возвращающий список аэропортов, в которых было принято более 500 рейсов.
+SELECT airports.airport_name, COUNT(flights.flight_id) AS count
+FROM airports
+INNER JOIN flights on airports.airport_code = flights.arrival_airport
+GROUP BY airports.airport_name
+HAVING COUNT(flights.flight_id) > 500
+ORDER BY count ASC;
+
+-- Авиакомпания провела модернизацию салонов всех имеющихся самолетов «Сессна» (код CN1), 
+-- в результате которой был добавлен седьмой ряд кресел. 
+-- Измените соответствующую таблицу, чтобы отразить этот факт.
+INSERT INTO seats (aircraft_code, seat_no, fare_conditions) 
+VALUES  ('CN1', '7A', 'Economy'),
+        ('CN1', '7B', 'Economy');
+
+-- В результате еще одной модернизации в самолетах «Аэробус A319» (код 319) 
+-- ряды кресел с шестого по восьмой были переведены в разряд бизнес-класса. 
+-- Измените таблицу одним запросом и получите изме- ненные данные с помощью предложения RETURNING.
+UPDATE seats 
+SET fare_conditions = 'Business' 
+WHERE aircraft_code = '319' 
+    AND (seat_no LIKE '6%' 
+         OR seat_no LIKE '7%' 
+         OR seat_no LIKE '8%') 
+RETURNING *;
+
+-- Создайте новое бронирование текущей датой. В качестве номера 
+--      бронирования можно взять любую последовательность из шести символов, 
+--      начинающуюся на символ подчеркивания. Общая сумма должна составлять 30 000 рублей.
+-- Создайте электронный билет, связанный с бронированием, на ваше имя.
+-- Назначьте электронному билету два рейса: один из Москвы (VKO) во Владивосток (VVO) через неделю, 
+--      другой — обратно через две недели. 
+-- Оба рейса выполняются эконом-классом, стоимость каждого должна состав- лять 15 000 рублей.
+BEGIN;
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('_qwert', now(), 30000) 
+        RETURNING *;
+    SAVEPOINT booking_svp;
+    -- ROLLBACK TO SAVEPOINT booking_svp;
+    
+    INSERT INTO tickets (ticket_no, book_ref, passenger_id, passenger_name, contact_data)
+        VALUES ('qweqweqwefdsf', '_qwert', 'test_passenger_id', 'PAVEL ERSHOV', '{"phone": "+70125366530"}')
+        RETURNING *;
+    SAVEPOINT tickets_svp;
+    -- ROLLBACK TO SAVEPOINT tickets_svp;
+
+    INSERT INTO ticket_flights (ticket_no, flight_id, fare_conditions, amount)
+        VALUES ('qweqweqwefdsf', 
+                (SELECT flight_id 
+                    FROM flights 
+                    WHERE departure_airport = 'VKO' 
+                        AND arrival_airport = 'VVO'
+                        AND scheduled_departure > bookings.now() + INTERVAL '1 week'
+                    LIMIT 1), 
+                'Economy', 
+                15000),
+                ('qweqweqwefdsf', 
+                (SELECT flight_id 
+                    FROM flights 
+                    WHERE departure_airport = 'VVO' 
+                        AND arrival_airport = 'VKO'
+                        AND scheduled_departure > bookings.now() + INTERVAL '2 week'
+                    LIMIT 1), 
+                'Economy', 
+                15000);
+    SAVEPOINT ticket_flights_svp;
+    -- ROLLBACK TO SAVEPOINT ticket_flights_svp;
+COMMIT;
+
