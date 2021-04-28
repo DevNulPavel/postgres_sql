@@ -417,3 +417,81 @@ SELECT COUNT(flight_id) AS count
 -- Для составления рейтинга аэропортов учитывается суточная пропускная способность, 
 -- т. е. среднее количество вылетевших из него и прилетевших в него за сутки пассажиров. 
 -- Выведите 10 аэропортов с наибольшей суточной пропускной способностью, упорядоченных по убыванию данной величины.
+-- SELECT airport_code, (COUNT(dep_flights.flight_id) + COUNT(arr_flights.flight_id)) AS total_count
+--     FROM airports
+--     INNER JOIN flights AS dep_flights ON airports.airport_code = dep_flights.departure_airport
+--     INNER JOIN flights AS arr_flights ON airports.airport_code = arr_flights.arrival_airport
+--     GROUP BY airport_code
+--     ORDER BY total_count DESC
+--     LIMIT 10;
+
+-- Количество вылетов по месяцам
+SELECT date_trunc('month', actual_departure), COUNT(flights.flight_id)
+    FROM flights
+    WHERE actual_departure IS NOT NULL
+    GROUP BY 1;
+-- Количество прилетов по месяцам
+SELECT date_trunc('month', actual_arrival), COUNT(flights.flight_id)
+    FROM flights
+    WHERE actual_arrival IS NOT NULL
+    GROUP BY 1;
+-- Количество билетов вылета по дням на конкретный аэропорт
+SELECT arrival_airport, date_trunc('day', actual_departure), COUNT(ticket_flights.ticket_no)
+    FROM ticket_flights
+    INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+    WHERE actual_arrival IS NOT NULL
+    GROUP BY 1,2;
+-- Среднее количество билетов прилета в день для аэропорта
+SELECT arrival_airport, AVG(tickets_count) as arr_average
+    FROM (
+        SELECT  arrival_airport, 
+                date_trunc('day', actual_departure) AS dep_day, 
+                COUNT(ticket_flights.ticket_no) AS tickets_count
+            FROM ticket_flights
+            INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+            WHERE actual_arrival IS NOT NULL
+            GROUP BY 1,2
+    ) AS count_by_day
+    GROUP BY arrival_airport;
+-- Среднее количество билетов вылета в день для аэропорта
+SELECT departure_airport, AVG(tickets_count) as dep_average
+    FROM (
+        SELECT  departure_airport, 
+                date_trunc('day', actual_departure) AS dep_day, 
+                COUNT(ticket_flights.ticket_no) AS tickets_count
+            FROM ticket_flights
+            INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+            WHERE actual_departure IS NOT NULL
+            GROUP BY 1,2
+    ) AS count_by_day
+    GROUP BY departure_airport;
+-- Результирующий запрос
+SELECT airport, SUM(average)
+    FROM (
+        SELECT arrival_airport AS airport, AVG(tickets_count) as average
+            FROM (
+                SELECT  arrival_airport, 
+                        date_trunc('day', actual_departure) AS dep_day, 
+                        COUNT(ticket_flights.ticket_no) AS tickets_count
+                    FROM ticket_flights
+                    INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+                    WHERE actual_arrival IS NOT NULL
+                    GROUP BY 1,2
+            ) AS count_by_day
+            GROUP BY arrival_airport
+        UNION 
+            SELECT departure_airport AS airport, AVG(tickets_count) as average
+            FROM (
+                SELECT  departure_airport, 
+                        date_trunc('day', actual_departure) AS dep_day, 
+                        COUNT(ticket_flights.ticket_no) AS tickets_count
+                    FROM ticket_flights
+                    INNER JOIN flights ON flights.flight_id = ticket_flights.flight_id
+                    WHERE actual_departure IS NOT NULL
+                    GROUP BY 1,2
+                ) AS count_by_day
+                GROUP BY departure_airport
+    ) AS sub_table
+    GROUP BY 1
+    ORDER BY 2 DESC
+    LIMIT 10;
