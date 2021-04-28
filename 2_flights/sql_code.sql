@@ -319,3 +319,101 @@ BEGIN;
     -- ROLLBACK TO SAVEPOINT ticket_flights_svp;
 COMMIT;
 
+-- Авиакомпания хочет предоставить пассажирам возможность повышения класса обслуживания уже после 
+-- покупки билета при регистрации на рейс. 
+-- За это взимается отдельная плата. 
+-- Добавьте в демонстрационную базу данных возможность хранения таких операций.
+BEGIN;
+    --  Создаем таблицу
+    -- TODO: Вынести проверку в общую функцию
+    CREATE TABLE fare_changes_price (
+        previous_fare VARCHAR(10) NOT NULL CHECK prev_check (previous_fare IN ('Economy', 'Comfort', 'Business')),
+        new_fare VARCHAR(10) NOT NULL CHECK new_check (previous_fare IN ('Economy', 'Comfort', 'Business')),
+        price INTEGER NOT NULL CHECK price_check (price > 0)
+    );
+    SAVEPOINT table_created;
+    -- ROLLBACK TO SAVEPOINT table_created;
+
+    -- ALTER TABLE fare_changes_price
+    --     DROP CONSTRAINT new_check;
+
+    -- ALTER TABLE fare_changes_price
+    --     ADD CONSTRAINT new_check CHECK (new_fare IN ('Economy', 'Comfort', 'Business'));
+
+    -- Добавляем значения
+    INSERT INTO fare_changes_price(previous_fare, new_fare, price)
+        VALUES ('Economy', 'Comfort', 2000),
+               ('Economy', 'Business', 3000),
+               ('Comfort', 'Business', 4000);
+COMMIT;
+
+-- Авиакомпания начинает выдавать пассажирам карточки постоянных клиентов. 
+-- Вместо того чтобы каждый раз вводить имя, номер документа и контактную информацию, постоянный клиент может указать 
+-- номер своей карты, к которой привязана вся необходимая информация. 
+-- При этом клиенту может предоставляться скидка.
+-- Измените существующую схему данных так, чтобы иметь возможность хранить информацию о постоянных клиентах.
+BEGIN;
+    CREATE TABLE user_carts (
+        user_cart_id SERIAL PRIMARY KEY,
+        user_name VARCHAR(30) NOT NULL,
+        email VARCHAR(30) NOT NULL,
+        discout_percent INTEGER NOT NULL,
+
+        CONSTRAINT discount_check CHECK (discout_percent > 0)
+    );
+    SAVEPOINT table_created;
+    -- ROLLBACK TO SAVEPOINT table_created;    
+
+    ALTER TABLE tickets 
+        ADD COLUMN user_cart_id INTEGER 
+        CONSTRAINT cart_id_constr REFERENCES user_carts(user_cart_id);
+COMMIT;
+
+
+-- Постоянные клиенты могут бесплатно провозить с собой животных. 
+-- Добавьте в ранее созданную таблицу постоянных клиентов информацию о перевозке домашних животных.
+BEGIN;
+    ALTER TABLE user_carts
+        ADD COLUMN with_free_animals BOOL NOT NULL DEFAULT false;
+COMMIT;
+
+
+-- Найдите модели самолетов «дальнего следования», максимальная продолжительность 
+-- рейсов которых составила более 6 часов.
+SELECT DISTINCT model
+    FROM aircrafts
+    WHERE aircraft_code IN (
+        SELECT DISTINCT aircraft_code 
+            FROM flights 
+            WHERE (actual_arrival - actual_departure) > INTERVAL '6 hours'
+    );
+-- То же самое но без подзапроса
+SELECT DISTINCT model 
+    FROM flights 
+    INNER JOIN aircrafts ON aircrafts.aircraft_code = flights.aircraft_code
+    WHERE (actual_arrival - actual_departure) > INTERVAL '6 hours';
+
+
+-- Подсчитайте количество рейсов, которые хотя бы раз были задержаны более чем на 4 часа.
+SELECT COUNT(flight_id) AS count
+    FROM (
+        SELECT flight_id 
+            FROM flights
+            WHERE (actual_departure - scheduled_departure) > INTERVAL '4 hours'
+    ) AS failed_flights;
+
+-- То же самое без подзапроса
+-- SELECT COUNT(flight_id) AS count
+--     FROM flights
+--     WHERE (actual_departure - scheduled_departure) > INTERVAL '4 hours';
+
+-- SELECT arrival_airport, departure_airport, COUNT(flight_id) AS count
+--     FROM flights
+--     WHERE (actual_departure - scheduled_departure) > INTERVAL '4 hours'
+--     GROUP BY arrival_airport, departure_airport
+--     HAVING COUNT(flight_id) > 10;
+
+
+-- Для составления рейтинга аэропортов учитывается суточная пропускная способность, 
+-- т. е. среднее количество вылетевших из него и прилетевших в него за сутки пассажиров. 
+-- Выведите 10 аэропортов с наибольшей суточной пропускной способностью, упорядоченных по убыванию данной величины.
