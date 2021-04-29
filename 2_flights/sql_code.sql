@@ -487,3 +487,145 @@ SELECT airport, SUM(average)
     GROUP BY 1
     ORDER BY 2 DESC
     LIMIT 10;
+
+-- С целью оценки интенсивности работы обслуживающего персонала аэропорта Шереметьево (SVO) вычислите, 
+-- сколько раз вылеты следовали друг за другом с перерывом менее пяти минут.
+SELECT COUNT(f1.flight_id)
+    FROM flights AS f1, flights AS f2
+    WHERE f1.departure_airport = 'SVO'
+        AND f2.departure_airport = 'SVO'
+        AND f1.actual_departure > f2.actual_departure
+        AND (f1.actual_departure - f2.actual_departure) < INTERVAL '5 min';
+
+
+-- Количество рейсов, принятых конкретным аэропортом за каждый день — довольно востребованный запрос. 
+-- Напишите представление данного запроса для аэропорта города Барнаул (BAX).
+CREATE VIEW bax_arrived_count AS
+    SELECT date_trunc('day', actual_arrival)::DATE AS date, COUNT(*)
+        FROM flights
+        WHERE arrival_airport = 'BAX' AND actual_arrival IS NOT NULL
+        GROUP BY date_trunc('day', actual_arrival)
+        ORDER BY date;
+SELECT * FROM bax_arrived_count;
+
+-- Создание нового пользоваеля
+CREATE ROLE reader;
+-- Либо
+CREATE USER reader;
+
+-- Получить его состояние 
+\du reader;
+
+-- Позволить пользователю логиниться
+ALTER USER reader LOGIN;
+
+-- Можем дать права на чтение данных из определенной таблицы пользователю
+GRANT SELECT ON TABLE airports TO reader;
+
+-- Отменить можно так
+REVOKE SELECT ON TABLE airports FROM reader;
+
+-- Можем дать возможность читать из всех таблиц сразу
+GRANT SELECT ON ALL TABLES IN SCHEMA bookings TO reader;
+
+-- Можно скопировать права от одного пользователя к другому
+GRANT reader TO writer;
+
+-- Уровень изоляции транзакций можно сделать выше
+BEGIN;
+    -- SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+    -- SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    -- SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+COMMIT;
+
+----------------------------------------------------------------------------------------
+
+-- Перед началом выполнения задания проверьте, что в таблице 
+-- bookings нет бронирований на сумму total_amount 1 000 рублей.
+-- 1. В первом сеансе начните транзакцию (командой BEGIN). 
+--      Выполните обновление таблицы bookings: увеличьте total_amount в два раза в тех строках, где сумма равна 1 000 рублей.
+-- 2. Во втором сеансе(откройте новое окно psql) вставьте в таблицу bookings новое бронирование на 1 000 рублей и 
+--      зафиксируйте транзакцию.
+-- 3. В первом сеансе повторите обновление таблицы bookings и зафиксируйте транзакцию.
+-- Осталась ли сумма добавленного бронирования равной 1 000 рублей? Почему это не так?
+SELECT * FROM bookings WHERE total_amount = 1000;
+-- 1
+BEGIN;
+    -- Данный режим транзакции значит, что в процессе транзации 
+    -- если другая транзакция закоммитит новое значение
+    -- то в текущей транзакции мы сможем прочитать эти данные
+    -- То есть нету полной атомарности при чтении
+    SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+    
+    UPDATE bookings 
+        SET total_amount = total_amount*2 
+        WHERE total_amount = 1000
+        RETURNING *;
+
+    UPDATE bookings 
+        SET total_amount = total_amount*2 
+        WHERE total_amount = 1000
+        RETURNING *;
+COMMIT;
+-- 2
+BEGIN;
+    SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+    
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('ASDASD', '2021-04-29 06:02:00+00', 1000)
+        RETURNING *;
+COMMIT;
+-- 3
+DELETE FROM bookings 
+    WHERE total_amount = 2000
+    RETURNING *;
+
+----------------------------------------------------------------------------------------
+
+-- Повторите предыдущее упражнение, но начните транзакцию в первом сеансе с 
+-- уровнем изоляции транзакций Repeatable Read. Объясните различие полученных результатов.
+SELECT * FROM bookings WHERE total_amount = 1000;
+-- 1
+BEGIN;
+    -- Данный режим транзакции значит, что при чтении данных мы не будем учитывать измененные где-то еще
+    -- данные при очередном чтении
+    -- Как результат - оба вызова не изменят состояние цены
+    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    
+    UPDATE bookings 
+        SET total_amount = total_amount*2 
+        WHERE total_amount = 1000
+        RETURNING *;
+
+    UPDATE bookings 
+        SET total_amount = total_amount*2 
+        WHERE total_amount = 1000
+        RETURNING *;
+COMMIT;
+-- 2
+BEGIN;
+    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('ASDASD', '2021-04-29 06:02:00+00', 1000)
+        RETURNING *;
+COMMIT;
+-- 3
+DELETE FROM bookings 
+    WHERE book_ref = 'ASDASD'
+    RETURNING *;
+
+----------------------------------------------------------------------------------------
+-- Выполните указанные действия в двух сеансах:
+-- 1. В первом сеансе начните новую транзакцию с уровнем изоляции Repeatable Read. 
+--      Вычислите количество бронирований с суммой 20 000 рублей.
+-- 2. Во втором сеансе начните новую транзакцию с уровнем изоляции Repeatable Read. 
+--      Вычислите количество бронирований с суммой 30 000 рублей.
+-- 3. В первом сеансе добавьте новое бронирование на 30000 рублей и снова 
+--      вычислите количество бронирований с суммой 20 000 рублей.
+-- 4. Во втором сеансе добавьте новоебронирование на 20000 рублей и снова вычислите количество бронирований 
+--      с суммой 30 000 рублей.
+-- 5. Зафиксируйте транзакции в обоих сеансах.
+-- Соответствует ли результат ожиданиями? 
+-- Можно ли сериализовать эти транзакции (иными словами, можно ли представить такой порядок последовательного 
+--      выполнения этих транзакций, при котором результат совпадет с тем, что получился при параллельном выполнении)?
