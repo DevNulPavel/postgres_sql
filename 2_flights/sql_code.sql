@@ -616,6 +616,7 @@ DELETE FROM bookings
     RETURNING *;
 
 ----------------------------------------------------------------------------------------
+
 -- Выполните указанные действия в двух сеансах:
 -- 1. В первом сеансе начните новую транзакцию с уровнем изоляции Repeatable Read. 
 --      Вычислите количество бронирований с суммой 20 000 рублей.
@@ -629,3 +630,82 @@ DELETE FROM bookings
 -- Соответствует ли результат ожиданиями? 
 -- Можно ли сериализовать эти транзакции (иными словами, можно ли представить такой порядок последовательного 
 --      выполнения этих транзакций, при котором результат совпадет с тем, что получился при параллельном выполнении)?
+-- 1
+BEGIN;
+    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    -- 1
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 20000;
+    SAVEPOINT select_amount;
+    -- ROLLBACK TO SAVEPOINT select_amount;
+    -- 3
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('TTTTTT', '2021-04-30 06:02:00+00', 30000)
+        RETURNING *;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 20000;        
+COMMIT;
+-- 2
+BEGIN;
+    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 30000;
+    SAVEPOINT select_amount;
+    -- ROLLBACK TO SAVEPOINT select_amount;
+    -- 4
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('BBBBBB', '2021-04-30 06:10:00+00', 20000)
+        RETURNING *;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 30000; 
+COMMIT;
+
+----------------------------------------------------------------------------------------
+
+-- Повторите предыдущее упражнение, но транзакции в обоих
+-- сеансах начните с уровнем изоляции Serializable.
+-- Если вы правильно ответили на его последний вопрос, вы поймете, почему теперь эти действия приводят к ошибке. 
+-- Если же результат этого упражнения стал для вас неожиданностью, 
+-- четко сформулируйте различие уровней Repeatable Read и Serializable.
+-- 1
+BEGIN;
+    -- При данном типе транзакций если произошли в одной транзакции изменения записи,
+    -- тогда вторая транзакция не сможет закоммититься, и будет выданы ошибка
+    --      could not serialize access due to read/write dependencies among transactions
+    --      DETAIL:  Reason code: Canceled on identification as a pivot, during commit attempt.
+    --      HINT:  The transaction might succeed if retried.
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+    -- 1
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 20000;
+    SAVEPOINT select_amount;
+    -- ROLLBACK TO SAVEPOINT select_amount;
+    -- 3
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('GGGGGG', '2021-04-30 06:02:00+00', 30000)
+        RETURNING *;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 20000;      
+COMMIT;
+-- 2
+BEGIN;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 30000;
+    SAVEPOINT select_amount;
+    -- ROLLBACK TO SAVEPOINT select_amount;
+    -- 4
+    INSERT INTO bookings (book_ref, book_date, total_amount)
+        VALUES ('DDDDDD', '2021-04-30 06:10:00+00', 20000)
+        RETURNING *;
+    SELECT COUNT(*)
+        FROM bookings
+        WHERE total_amount = 30000;
+COMMIT;
